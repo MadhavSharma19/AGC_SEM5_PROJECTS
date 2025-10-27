@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Bulk Student QR Generator (from CSV)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body { font-family: system-ui, Arial, sans-serif; margin: 20px; }
+  fieldset { border:1px solid #ddd; border-radius:8px; padding:12px; margin-bottom:16px; }
+  legend { font-weight: bold; padding: 0 6px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  table { border-collapse: collapse; width:100%; margin-top:10px; }
+  th, td { border:1px solid #e5e5e5; padding:6px 8px; }
+  th { background:#f5f5f5; }
+  button { padding:8px 12px; border-radius:8px; border:1px solid #ccc; background:#1976d2; color:#fff; }
+  button.secondary { background:#eee; color:#222; }
+  #preview { display:grid; grid-template-columns: repeat(auto-fill, 180px); gap:12px; }
+  .card { border:1px solid #eee; padding:8px; border-radius:8px; text-align:center; }
+  .muted { color:#666; }
+</style>
+<!-- QR code generator -->
+<script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
+<!-- Zip and save helpers -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+</head>
+<body>
+  <h2>Bulk Student QR Generator (from students.csv)</h2>
+
+  <fieldset>
+    <legend>1) Load students.csv</legend>
+    <div class="row">
+      <input id="csvInput" type="file" accept=".csv,text/csv"/>
+      <span id="status" class="muted">Header must be: class,student,passkey</span>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>2) Actions</legend>
+    <div class="row">
+      <button id="makeAll">Generate All QR</button>
+      <button id="zipAll" class="secondary">Download ZIP</button>
+      <span class="muted" id="count"></span>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Preview</legend>
+    <div id="preview"></div>
+    <table id="table" style="display:none">
+      <thead><tr><th>Class</th><th>Student</th><th>Passkey</th><th>QR Filename</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </fieldset>
+
+<script>
+  let roster = []; // [{class,student,passkey}]
+  const statusEl = document.getElementById('status');
+  const tbody = document.getElementById('tbody');
+  const countEl = document.getElementById('count');
+  const preview = document.getElementById('preview');
+
+  document.getElementById('csvInput').addEventListener('change', async e=>{
+    const f = e.target.files[0]; if(!f) return;
+    const text = await f.text();
+    if (!parseStudents(text)) return;
+    buildTable();
+    statusEl.textContent = `Loaded ${roster.length} students`;
+  });
+
+  function parseStudents(text){
+    const lines = text.trim().split(/\r?\n/);
+    if (!lines.length) return false;
+    const header = lines.shift().toLowerCase();
+    if (!(header.includes('class') && header.includes('student') && header.includes('passkey'))) {
+      alert("CSV header must be: class,student,passkey");
+      return false;
+    }
+    roster = lines.filter(Boolean).map(splitCsv).filter(a=>a.length>=3)
+                  .map(a=>({class:a[0], student:a[1], passkey:a[2]}));
+    countEl.textContent = `Ready: ${roster.length} QR`;
+    return true;
+  }
+
+  function buildTable(){
+    tbody.innerHTML = "";
+    preview.innerHTML = "";
+    document.getElementById('table').style.display = roster.length? 'table' : 'none';
+    for (const r of roster) {
+      const file = qrFilename(r.class, r.student);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${esc(r.class)}</td><td>${esc(r.student)}</td><td>${esc(r.passkey)}</td><td>${esc(file)}</td>`;
+      tbody.appendChild(tr);
+
+      // preview card placeholder; QR will be filled when generated
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<div class="muted">${esc(r.class)}</div><strong>${esc(r.student)}</strong><div id="${domId(file)}"></div><div class="muted">${esc(file)}</div>`;
+      preview.appendChild(card);
+    }
+  }
+
+  // Generate all QR codes into the preview grid
+  document.getElementById('makeAll').addEventListener('click', ()=>{
+    for (const r of roster) {
+      const payload = JSON.stringify({ "class": r.class, "student": r.student, "key": r.passkey });
+      const targetId = domId(qrFilename(r.class, r.student));
+      const box = document.getElementById(targetId);
+      box.innerHTML = "";
+      new QRCode(box, { text: payload, width: 160, height: 160, correctLevel: QRCode.CorrectLevel.M });
+    }
+    statusEl.textContent = "All QR generated (preview). Use ZIP to download images.";
+  });
+
+  // Download all as ZIP; converts each generated QR <img> or <canvas> to PNG
+  document.getElementById('zipAll').addEventListener('click', async ()=>{
+    if (!roster.length) { alert("Load CSV first"); return; }
+    // Ensure generated
+    document.getElementById('makeAll').click();
+
+    const zip = new JSZip();
+    for (const r of roster) {
+      const file = qrFilename(r.class, r.student);
+      const id = domId(file);
+      const box = document.getElementById(id);
+      const img = box.querySelector('img') || box.querySelector('canvas');
+      if (!img) continue;
+      const dataUrl = (img.tagName === 'IMG') ? img.src : img.toDataURL('image/png');
+      const blob = await dataURLtoBlob(dataUrl);
+      zip.file(file, blob);
+    }
+    const zipBlob = await zip.generateAsync({ type:'blob' });
+    saveAs(zipBlob, 'student-qr-batch.zip');
+  });
+
+  // Helpers
+  function qrFilename(cls, name){ return `${cls}_${name.replace(/\s+/g,'_')}.png`; }
+  function domId(file){ return 'qr_' + file.replace(/[^a-zA-Z0-9_]/g,''); }
+  function esc(s){ return String(s).replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c])); }
+  function splitCsv(line){
+    const out=[], re=/(?:^|,)(?:"([^"]*(?:""[^"]*)*)"|([^",]*))/g; let m;
+    while ((m=re.exec(line))) out.push( (m[1]||m[2]||"").replace(/""/g,'"') );
+    return out;
+  }
+  function dataURLtoBlob(dataUrl){
+    return fetch(dataUrl).then(res=>res.blob());
+  }
+</script>
+</body>
+</html>
