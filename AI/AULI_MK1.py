@@ -6,7 +6,7 @@ import datetime
 from openai import OpenAI
 
 # ============== CONFIGURATION ==============
-OPENROUTER_API_KEY = "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"  # 🔹 Replace with your actual key
+OPENROUTER_API_KEY = "sk-or-v1-API-KEYHERE"  # 🔹 Replace with your actual key
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -83,3 +83,4 @@ def run_auli():
 # ============== RUN ==============
 if __name__ == "__main__":
     run_auli()
+
