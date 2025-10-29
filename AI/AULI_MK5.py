@@ -11,7 +11,7 @@ import subprocess
 import time
 
 # ==================== CONFIGURATION ====================
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "sk-or-v1-API KEY HERE"
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -273,3 +273,4 @@ voice_btn.pack(side=tk.LEFT, ipadx=10, ipady=6)
 speak("Hello Madhav! I’m AULI — your futuristic AI assistant. I can open apps, play music, and chat with you anytime.")
 
 root.mainloop()
+
